@@ -1,0 +1,14 @@
+{
+  "name": "jose-plugins",
+  "owner": {
+    "name": "jose.galvez"
+  },
+  "plugins": [
+    {
+      "name": "greet-plugin",
+      "source": "./plugins/greet-plugin",
+      "description": "Starter plugin with greeting skill, hooks, and greet command",
+      "version": "1.0.0"
+    }
+  ]
+}

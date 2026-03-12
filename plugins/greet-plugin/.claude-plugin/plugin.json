@@ -1,0 +1,6 @@
+{
+  "name": "greet-plugin",
+  "version": "1.0.0",
+  "description": "Starter plugin with greeting skill, hooks, and greet command",
+  "commands": ["./commands/greet.md"]
+}
