@@ -33,11 +33,15 @@ Add the following to your `~/.claude/plugins/known_marketplaces.json`:
   "jose-plugins": {
     "source": {
       "source": "github",
-      "repo": "jose-galvez/claude-plugins"
-    }
+      "repo": "JoseGalvez-trajector/jose-claude-plugin"
+    },
+    "installLocation": "/Users/<your-username>/.claude/plugins/marketplaces/jose-plugins",
+    "lastUpdated": "2026-03-13T00:00:00.000Z"
   }
 }
 ```
+
+> Replace `<your-username>` with your macOS username.
 
 ### 2. Install a plugin
 
