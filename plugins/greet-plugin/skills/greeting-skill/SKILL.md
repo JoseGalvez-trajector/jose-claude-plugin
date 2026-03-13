@@ -1,7 +1,6 @@
 ---
 name: greeting-skill
 description: This skill should be used when the user asks to "greet someone", "say hello", "introduce yourself", "write a greeting", or needs a friendly introduction message. Provides guidance on crafting warm, personalized greetings.
-version: 1.0.0
 ---
 
 # Greeting Skill
