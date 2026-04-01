@@ -74,3 +74,26 @@ Load a plugin directly without publishing:
 ```
 claude --plugin-dir /Users/jose.galvez/Documents/claude-plugins/plugins/greet-plugin
 ```
+
+---
+
+## Auto-Versioning
+
+Commits using [Conventional Commits](https://www.conventionalcommits.org/) automatically bump the version in `.claude-plugin/marketplace.json`.
+
+| Commit prefix | Version bump | Example |
+|---|---|---|
+| `feat:` | minor | 1.0.13 → 1.1.0 |
+| `fix:`, `docs:`, `perf:`, `refactor:` | patch | 1.0.13 → 1.0.14 |
+| `feat!:` / `BREAKING CHANGE:` | major | 1.0.13 → 2.0.0 |
+| `style:`, `test:`, `chore:`, `ci:`, `build:`, `revert:` | none | — |
+
+The version bump is included in the same commit automatically.
+
+### One-time setup (required per clone)
+
+```bash
+bash .claude/hooks/install-hooks.sh
+```
+
+This installs the `commit-msg` git hook. The Claude Code `PreToolUse` hook in `.claude/settings.json` provides additional coverage when committing via Claude Code (including when `--no-verify` is used).
