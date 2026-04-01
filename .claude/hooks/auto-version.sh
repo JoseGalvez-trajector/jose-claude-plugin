@@ -64,7 +64,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 AFFECTED_PLUGINS=$(git diff --cached --name-only | \
   grep '^plugins/' | \
   sed 's|^plugins/\([^/]*\)/.*|\1|' | \
-  sort -u)
+  sort -u || true)
 
 [[ -z "$AFFECTED_PLUGINS" ]] && exit 0
 
