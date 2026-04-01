@@ -57,23 +57,42 @@ fi
 
 [[ -z "$BUMP" ]] && exit 0
 
-# Read current version
-CURRENT_VERSION=$(jq -r '.plugins[0].version' "$MARKETPLACE_FILE")
-[[ -z "$CURRENT_VERSION" || "$CURRENT_VERSION" == "null" ]] && exit 0
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-# Calculate new version
-case "$BUMP" in
-  major) NEW_VERSION=$(printf '%s' "$CURRENT_VERSION" | awk -F. '{print $1+1".0.0"}') ;;
-  minor) NEW_VERSION=$(printf '%s' "$CURRENT_VERSION" | awk -F. '{print $1"."$2+1".0"}') ;;
-  patch) NEW_VERSION=$(printf '%s' "$CURRENT_VERSION" | awk -F. '{print $1"."$2"."$3+1}') ;;
-esac
+# Detect which plugins have staged changes by looking at staged file paths
+# Matches files under plugins/<plugin-name>/
+AFFECTED_PLUGINS=$(git diff --cached --name-only | \
+  grep '^plugins/' | \
+  sed 's|^plugins/\([^/]*\)/.*|\1|' | \
+  sort -u)
 
-# Write updated marketplace.json (safe in-place update)
-TMPFILE=$(mktemp)
-jq --arg v "$NEW_VERSION" '(.plugins[].version) = $v' "$MARKETPLACE_FILE" > "$TMPFILE"
-mv "$TMPFILE" "$MARKETPLACE_FILE"
+[[ -z "$AFFECTED_PLUGINS" ]] && exit 0
 
-# Stage the updated file
-git add "$(git rev-parse --show-toplevel)/.claude-plugin/marketplace.json"
+# Bump version for each affected plugin
+BUMPED_ANY=0
+while IFS= read -r PLUGIN_NAME; do
+  CURRENT_VERSION=$(jq -r --arg name "$PLUGIN_NAME" \
+    '.plugins[] | select(.name == $name) | .version' "$MARKETPLACE_FILE")
 
-echo "auto-version: $CURRENT_VERSION → $NEW_VERSION ($BUMP bump for '$COMMIT_TYPE')" >&2
+  [[ -z "$CURRENT_VERSION" || "$CURRENT_VERSION" == "null" ]] && continue
+
+  case "$BUMP" in
+    major) NEW_VERSION=$(printf '%s' "$CURRENT_VERSION" | awk -F. '{print $1+1".0.0"}') ;;
+    minor) NEW_VERSION=$(printf '%s' "$CURRENT_VERSION" | awk -F. '{print $1"."$2+1".0"}') ;;
+    patch) NEW_VERSION=$(printf '%s' "$CURRENT_VERSION" | awk -F. '{print $1"."$2"."$3+1}') ;;
+  esac
+
+  TMPFILE=$(mktemp)
+  jq --arg name "$PLUGIN_NAME" --arg v "$NEW_VERSION" \
+    '(.plugins[] | select(.name == $name) | .version) = $v' \
+    "$MARKETPLACE_FILE" > "$TMPFILE"
+  mv "$TMPFILE" "$MARKETPLACE_FILE"
+
+  echo "auto-version: [$PLUGIN_NAME] $CURRENT_VERSION → $NEW_VERSION ($BUMP bump for '$COMMIT_TYPE')" >&2
+  BUMPED_ANY=1
+done <<< "$AFFECTED_PLUGINS"
+
+# Stage the updated file if any plugin was bumped
+if [[ "$BUMPED_ANY" -eq 1 ]]; then
+  git add "$REPO_ROOT/.claude-plugin/marketplace.json"
+fi
