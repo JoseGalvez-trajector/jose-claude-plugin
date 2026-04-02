@@ -31,6 +31,23 @@ fi
 [[ -z "$COMMIT_MSG" ]] && exit 0
 [[ ! -f "$MARKETPLACE_FILE" ]] && exit 0
 
+# Enforce conventional commit format
+CONVENTIONAL_PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+'
+if ! printf '%s' "$COMMIT_MSG" | grep -qE "$CONVENTIONAL_PATTERN"; then
+  echo "" >&2
+  echo "❌ Invalid commit message format." >&2
+  echo "" >&2
+  echo "   Expected: <type>[optional scope]: <description>" >&2
+  echo "   Example:  feat(auth): add login support" >&2
+  echo "" >&2
+  echo "   Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert" >&2
+  echo "   Breaking change: append '!' after type, e.g. feat!: drop Node 16 support" >&2
+  echo "" >&2
+  echo "   Your message: $COMMIT_MSG" >&2
+  echo "" >&2
+  exit 1
+fi
+
 # Detect BREAKING CHANGE
 IS_BREAKING=0
 if printf '%s' "$COMMIT_MSG" | grep -qE '^[a-z]+!:'; then
