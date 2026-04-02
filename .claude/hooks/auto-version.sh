@@ -1,35 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Git commit-msg hook — $1 is the commit message temp file
 MARKETPLACE_FILE="$(git rev-parse --show-toplevel)/.claude-plugin/marketplace.json"
 
 # Guard: jq required
 command -v jq >/dev/null 2>&1 || exit 0
 
-COMMIT_MSG=""
-
-if [[ -n "${1:-}" && -f "$1" ]]; then
-  # Mode 1: git commit-msg hook — $1 is the message temp file
-  COMMIT_MSG=$(grep -v '^#' "$1" | head -1)
-else
-  # Mode 2: Claude Code PreToolUse — JSON on stdin
-  if IFS= read -t 2 -r STDIN_LINE 2>/dev/null; then
-    FULL_STDIN="$STDIN_LINE"
-    while IFS= read -t 0.1 -r LINE 2>/dev/null; do
-      FULL_STDIN+="$LINE"
-    done
-    BASH_CMD=$(printf '%s' "$FULL_STDIN" | jq -r '.tool_input.command // empty')
-    if ! printf '%s' "$BASH_CMD" | grep -qE 'git commit'; then
-      exit 0
-    fi
-    COMMIT_MSG=$(printf '%s' "$BASH_CMD" \
-      | sed -n "s/.*-m '\([^']*\)'.*/\1/p; s/.*-m \"\([^\"]*\)\".*/\1/p" \
-      | head -1)
-  fi
-fi
-
-[[ -z "$COMMIT_MSG" ]] && exit 0
+[[ ! -f "$1" ]] && exit 0
 [[ ! -f "$MARKETPLACE_FILE" ]] && exit 0
+
+COMMIT_MSG=$(grep -v '^#' "$1" | head -1)
+[[ -z "$COMMIT_MSG" ]] && exit 0
 
 # Enforce conventional commit format
 CONVENTIONAL_PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+'
@@ -41,22 +23,20 @@ if ! printf '%s' "$COMMIT_MSG" | grep -qE "$CONVENTIONAL_PATTERN"; then
   echo "   Example:  feat(auth): add login support" >&2
   echo "" >&2
   echo "   Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert" >&2
-  echo "   Breaking change: append '!' after type, e.g. feat!: drop Node 16 support" >&2
+  echo "   Breaking change: append '!' after type/scope, e.g. feat!: drop Node 16 support" >&2
   echo "" >&2
   echo "   Your message: $COMMIT_MSG" >&2
   echo "" >&2
   exit 1
 fi
 
-# Detect BREAKING CHANGE
+# Detect BREAKING CHANGE — covers both feat!: and feat(scope)!:
 IS_BREAKING=0
-if printf '%s' "$COMMIT_MSG" | grep -qE '^[a-z]+!:'; then
+if printf '%s' "$COMMIT_MSG" | grep -qE '^[a-z]+(\(.+\))?!:'; then
   IS_BREAKING=1
 fi
-if [[ -n "${1:-}" && -f "$1" ]]; then
-  if grep -qE '^BREAKING CHANGE:' "$1" 2>/dev/null; then
-    IS_BREAKING=1
-  fi
+if grep -qE '^BREAKING CHANGE:' "$1" 2>/dev/null; then
+  IS_BREAKING=1
 fi
 
 # Extract type
@@ -77,7 +57,6 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # Detect which plugins have staged changes by looking at staged file paths
-# Matches files under plugins/<plugin-name>/
 AFFECTED_PLUGINS=$(git diff --cached --name-only | \
   grep '^plugins/' | \
   sed 's|^plugins/\([^/]*\)/.*|\1|' | \
