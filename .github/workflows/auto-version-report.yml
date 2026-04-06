@@ -64,9 +64,11 @@ jobs:
       - name: Post PR comment
         if: steps.diff.outputs.has_changes == 'true'
         uses: actions/github-script@v7
+        env:
+          REPORT: ${{ steps.diff.outputs.report }}
         with:
           script: |
-            const report = `${{ steps.diff.outputs.report }}`;
+            const report = process.env.REPORT;
             const body = [
               '## 🔖 Auto Version Bump Report',
               '',
