@@ -1,0 +1,107 @@
+name: Auto Version Report
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '.claude-plugin/marketplace.json'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  report-version-bumps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect version changes
+        id: diff
+        run: |
+          # Get marketplace.json from the base branch
+          BASE_JSON=$(git show origin/${{ github.base_ref }}:.claude-plugin/marketplace.json 2>/dev/null || echo '{"plugins":[]}')
+          HEAD_JSON=$(cat .claude-plugin/marketplace.json)
+
+          # Build a report of changed versions
+          REPORT=""
+          while IFS= read -r PLUGIN_NAME; do
+            BASE_VER=$(echo "$BASE_JSON" | jq -r --arg n "$PLUGIN_NAME" '.plugins[] | select(.name==$n) | .version // "N/A"')
+            HEAD_VER=$(echo "$HEAD_JSON" | jq -r --arg n "$PLUGIN_NAME" '.plugins[] | select(.name==$n) | .version // "N/A"')
+
+            if [[ "$BASE_VER" != "$HEAD_VER" ]]; then
+              # Determine bump type from semver diff
+              BASE_MAJOR=$(echo "$BASE_VER" | cut -d. -f1)
+              BASE_MINOR=$(echo "$BASE_VER" | cut -d. -f2)
+              HEAD_MAJOR=$(echo "$HEAD_VER" | cut -d. -f1)
+              HEAD_MINOR=$(echo "$HEAD_VER" | cut -d. -f2)
+
+              if [[ "$HEAD_MAJOR" -gt "$BASE_MAJOR" ]]; then
+                BUMP_TYPE="major — breaking change"
+              elif [[ "$HEAD_MINOR" -gt "$BASE_MINOR" ]]; then
+                BUMP_TYPE="minor — new feature"
+              else
+                BUMP_TYPE="patch — bug fix / improvement"
+              fi
+
+              REPORT="${REPORT}\n| \`${PLUGIN_NAME}\` | ${BASE_VER} | ${HEAD_VER} | ${BUMP_TYPE} |"
+            fi
+          done < <(echo "$HEAD_JSON" | jq -r '.plugins[].name')
+
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          if [[ -n "$REPORT" ]]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post PR comment
+        if: steps.diff.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const report = `${{ steps.diff.outputs.report }}`;
+            const body = [
+              '## 🔖 Auto Version Bump Report',
+              '',
+              'The following plugin versions were automatically incremented by the `auto-version` commit-msg hook:',
+              '',
+              '| Plugin | Before | After | Bump type |',
+              '|--------|--------|-------|-----------|',
+              report,
+              '',
+              '<sub>Driven by [conventional commit](https://www.conventionalcommits.org/) types in this PR — `feat` → minor, `fix`/`perf`/`docs`/`refactor` → patch, breaking change (`!`) → major.</sub>',
+            ].join('\n');
+
+            // Find and update an existing bot comment, or create a new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Auto Version Bump Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
