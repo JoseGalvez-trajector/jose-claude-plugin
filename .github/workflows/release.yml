@@ -120,7 +120,9 @@ jobs:
             .claude-plugin/marketplace.json > tmp.json && mv tmp.json .claude-plugin/marketplace.json
           git add .claude-plugin/marketplace.json
           if ! git diff --cached --quiet; then
+            git stash
             git pull --rebase origin main
+            git stash pop
             git commit -m "chore(marketplace): bump $PLUGIN to $NEW_VERSION [skip ci]"
             git push
           fi
