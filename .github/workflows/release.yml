@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "plugins/**"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  discover-plugins:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Build matrix of changed plugins
+        id: set-matrix
+        run: |
+          CHANGED_PLUGINS=$(git diff --name-only HEAD~1 HEAD \
+            | grep '^plugins/' \
+            | sed 's|^plugins/\([^/]*\)/.*|\1|' \
+            | sort -u \
+            | jq -R . | jq -sc .)
+          echo "matrix={\"plugin\":$CHANGED_PLUGINS}" >> $GITHUB_OUTPUT
+
+  release:
+    needs: discover-plugins
+    if: ${{ needs.discover-plugins.outputs.matrix != '{"plugin":[]}' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.discover-plugins.outputs.matrix) }}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install semantic-release
+        run: >
+          npm install --no-save
+          semantic-release
+          @semantic-release/commit-analyzer
+          @semantic-release/release-notes-generator
+          @semantic-release/github
+          conventional-changelog-conventionalcommits
+
+      - name: Generate .releaserc.json for plugin
+        env:
+          PLUGIN: ${{ matrix.plugin }}
+        run: |
+          cat > .releaserc.json <<EOF
+          {
+            "branches": ["main"],
+            "tagFormat": "${PLUGIN}@\${version}",
+            "plugins": [
+              ["@semantic-release/commit-analyzer", {
+                "preset": "conventionalcommits",
+                "releaseRules": [
+                  { "type": "feat", "release": "minor" },
+                  { "type": "fix", "release": "patch" },
+                  { "type": "perf", "release": "patch" },
+                  { "type": "docs", "release": "patch" },
+                  { "type": "refactor", "release": "patch" }
+                ]
+              }],
+              ["@semantic-release/release-notes-generator", {
+                "preset": "conventionalcommits"
+              }],
+              ["@semantic-release/github", {
+                "successComment": false,
+                "failComment": false
+              }]
+            ]
+          }
+          EOF
+
+      - name: Semantic Release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --no semantic-release
+          # Read the version from the lifecycle output file semantic-release writes
+          NEW_VERSION=$(jq -r '.nextRelease.version // empty' .semantic-release.*.json 2>/dev/null | head -1)
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Update marketplace.json version
+        if: steps.semantic.outputs.new_version != ''
+        env:
+          PLUGIN: ${{ matrix.plugin }}
+          NEW_VERSION: ${{ steps.semantic.outputs.new_version }}
+        run: |
+          jq --arg name "$PLUGIN" --arg v "$NEW_VERSION" \
+            '(.plugins[] | select(.name == $name) | .version) = $v' \
+            .claude-plugin/marketplace.json > tmp.json && mv tmp.json .claude-plugin/marketplace.json
+          echo "Updated marketplace.json: $PLUGIN → $NEW_VERSION"
+
+      - name: Commit marketplace.json update
+        if: steps.semantic.outputs.new_version != ''
+        env:
+          PLUGIN: ${{ matrix.plugin }}
+          NEW_VERSION: ${{ steps.semantic.outputs.new_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/marketplace.json
+          git diff --cached --quiet || git commit -m "chore(marketplace): bump $PLUGIN to $NEW_VERSION [skip ci]"
+          git push
+
+      - name: Upload semantic-release lifecycle data on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: "semantic-release-${{ matrix.plugin }}-lifecycles"
+          path: ".semantic-release.*.json"
+          if-no-files-found: warn
+          retention-days: 5
