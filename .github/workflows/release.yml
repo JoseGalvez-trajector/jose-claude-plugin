@@ -118,14 +118,15 @@ jobs:
           jq --arg name "$PLUGIN" --arg v "$NEW_VERSION" \
             '(.plugins[] | select(.name == $name) | .version) = $v' \
             .claude-plugin/marketplace.json > tmp.json && mv tmp.json .claude-plugin/marketplace.json
-          git add .claude-plugin/marketplace.json
-          if ! git diff --cached --quiet; then
-            git stash
+          git diff --quiet .claude-plugin/marketplace.json && exit 0
+          for i in 1 2 3; do
             git pull --rebase origin main
-            git stash pop
-            git commit -m "chore(marketplace): bump $PLUGIN to $NEW_VERSION [skip ci]"
-            git push
-          fi
+            git add .claude-plugin/marketplace.json
+            git commit -m "chore(marketplace): bump $PLUGIN to $NEW_VERSION [skip ci]" && \
+            git push && break
+            git reset HEAD~1
+            sleep $((i * 2))
+          done
 
       - name: Upload semantic-release lifecycle data on failure
         uses: actions/upload-artifact@v4
