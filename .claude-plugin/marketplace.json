@@ -8,7 +8,7 @@
       "name": "greet-plugin",
       "source": "./plugins/greet-plugin",
       "description": "Starter plugin with greeting skill, hooks, and greet command",
-      "version": "1.0.13"
+      "version": "1.0.0"
     },
     {
       "name": "calc-plugin",
