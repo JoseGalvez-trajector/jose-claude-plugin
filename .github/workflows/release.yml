@@ -13,8 +13,6 @@ concurrency:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
 
 jobs:
   discover-plugins:
@@ -31,11 +29,22 @@ jobs:
       - name: Build matrix of changed plugins
         id: set-matrix
         run: |
-          CHANGED_PLUGINS=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
-            | grep '^plugins/' \
-            | sed 's|^plugins/\([^/]*\)/.*|\1|' \
-            | sort -u \
-            | jq -R . | jq -sc .)
+          BEFORE="${{ github.event.before }}"
+          if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+            BEFORE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+
+          if [[ -z "$BEFORE" ]]; then
+            CHANGED_PLUGINS=$(find plugins -mindepth 1 -maxdepth 1 -type d -exec basename {} \; \
+              | jq -R . | jq -sc .)
+          else
+            CHANGED_PLUGINS=$(git diff --name-only "$BEFORE" ${{ github.sha }} \
+              | grep '^plugins/' \
+              | sed 's|^plugins/\([^/]*\)/.*|\1|' \
+              | sort -u \
+              | jq -R . | jq -sc .)
+          fi
+
           echo "matrix={\"plugin\":$CHANGED_PLUGINS}" >> $GITHUB_OUTPUT
           if [[ "$CHANGED_PLUGINS" == "[]" ]]; then
             echo "has-plugins=false" >> $GITHUB_OUTPUT
@@ -103,9 +112,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PLUGIN: ${{ matrix.plugin }}
         run: |
+          BEFORE_TAG=$(git describe --tags --match "$PLUGIN@*" --abbrev=0 2>/dev/null || echo "")
           npx --no semantic-release
-          NEW_VERSION=$(git describe --tags --match "$PLUGIN@*" --abbrev=0 2>/dev/null | sed "s|^$PLUGIN@||")
-          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          AFTER_TAG=$(git describe --tags --match "$PLUGIN@*" --abbrev=0 2>/dev/null || echo "")
+          if [[ -n "$AFTER_TAG" && "$AFTER_TAG" != "$BEFORE_TAG" ]]; then
+            echo "new_version=${AFTER_TAG#$PLUGIN@}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Update and commit marketplace.json
         if: steps.semantic.outputs.new_version != ''
